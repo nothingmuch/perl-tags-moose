@@ -4,6 +4,8 @@ use strict;
 
 use ExtUtils::MakeMaker;
 
+require 5.010;
+
 WriteMakefile(
 	NAME         => '',
 	VERSION_FROM => '',
@@ -12,6 +14,7 @@ WriteMakefile(
 	PL_FILES     => { },
 	PREREQ_PM    => {
 		'Test::use::ok' => 0,
+		'Perl::Tags' => 0,
 	},
 );
 
