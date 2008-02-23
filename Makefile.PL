@@ -7,8 +7,8 @@ use ExtUtils::MakeMaker;
 require 5.010;
 
 WriteMakefile(
-	NAME         => '',
-	VERSION_FROM => '',
+	NAME         => 'Perl::Tags::Moose',
+	VERSION_FROM => 'lib/Perl/Tags/Moose.pm',
 	INSTALLDIRS  => 'site',
 	SIGN         => 1,
 	PL_FILES     => { },
