@@ -11,6 +11,10 @@ use Perl::Tags::Moose::Tag::Modifier ();
 use base qw(Perl::Tags::Naive);
 
 # TODO
+
+# find a way to support with and extends, not really possible for with
+# qw(\n...\n); etc, because of Perl::Tags' current design
+
 # try to parse 'Foo->meta' as a complete tag in VIM and emit such a tag by
 # keeping track of the current package and jumping to the use metaclass line?
 
@@ -35,6 +39,10 @@ my $match_modifier = qr/
 
 	$sugar_identifier
 /x;
+
+my $match_compose = qr(
+	(?: extends | with )
+);
 
 sub get_parsers {
 	my $self = shift;
