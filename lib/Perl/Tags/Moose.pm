@@ -106,10 +106,15 @@ Perl::Tags::Moose - Primitive Moose support for L<Perl::Tags>.
 
 =head1 DESCRIPTION
 
-This module extends L<Perl::Tags> to provide very simplistic attribute and
+This module extends L<Perl::Tags::PPI> to provide very simplistic attribute and
 method modifier support for Moose source code.
 
-The heuristics are stupid, so beware that they will not always work.
+It will also produce L<Perl::Tags::Tag::Recurse> tags for C<extends> and
+C<with> declarations.
+
+The heuristics are stupid, so beware that they will not always work, for
+instance if the expressions for the sugar rely on complex expressions or
+variables.
 
 =head1 VERSION CONTROL
 
