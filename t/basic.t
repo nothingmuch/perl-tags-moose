@@ -7,19 +7,42 @@ use Test::More 'no_plan';
 
 use ok 'Perl::Tags::Moose';
 
-{
-	my $tag = Perl::Tags::Moose->attribute_line( ("has foo => (") x 2, "Foo.pm" );
+sub tagify {
+	my $code = shift;
 
-	ok( $tag, "got a tag" );
+	my $doc = PPI::Document->new( \$code );
 
-	isa_ok( $tag, "Perl::Tags::Moose::Tag::Attribute" );
+	my $stmt = $doc->find(sub { $_[1]->isa("PPI::Statement") })->[0];
 
-	is( $tag->{name}, "foo",    "foo attr" );
-	is( $tag->{file}, "Foo.pm", "file" );
+	Perl::Tags::Moose->_tagify( $stmt, "Foo.pm" );
 }
 
 {
-	my $tag = Perl::Tags::Moose->modifier_line( ("around 'blah' => sub {") x 2, "Foo.pm" );
+	my @tags = tagify('has foo => ( is => "rw", clearer => "oink", handles => ["bar"], provides => { push => "la" } );');
+
+	is ( scalar(@tags), 4, "two tags" );
+
+	foreach my $tag ( @tags ) {
+		isa_ok( $tag, "Perl::Tags::Moose::Tag::Attribute" );
+	}
+
+	my %tags = map { $_->{name} => $_ } @tags;
+
+	is( $tags{foo}{name}, "foo",    "foo attr" );
+	is( $tags{foo}{file}, "Foo.pm", "file" );
+
+	is( $tags{bar}{name}, "bar",    "bar delegation" );
+	is( $tags{bar}{file}, "Foo.pm", "file" );
+
+	is( $tags{oink}{name}, "oink",   "oink clearer" );
+	is( $tags{oink}{file}, "Foo.pm", "file" );
+
+	is( $tags{la}{name}, "la",     "la helper" );
+	is( $tags{la}{file}, "Foo.pm", "file" );
+}
+
+{
+	my $tag = tagify("around 'blah' => sub { };");
 
 	ok( $tag, "got a tag" );
 
@@ -27,4 +50,20 @@ use ok 'Perl::Tags::Moose';
 
 	is( $tag->{name}, "blah",    "blah around" );
 	is( $tag->{file}, "Foo.pm", "file" );
+}
+
+{
+	my @tags = tagify("with qw(\nFoo::Bar\n    Gorch\n);");
+
+	ok( scalar(@tags), "got some tags" );
+
+	foreach my $tag ( @tags ) {
+		isa_ok( $tag, "Perl::Tags::Tag::Recurse" );
+	}
+
+	is_deeply(
+		[ map { $_->{name} } @tags ],
+		[ qw(Foo::Bar Gorch) ],
+		"right packages",
+	);
 }

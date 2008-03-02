@@ -4,84 +4,195 @@ use 5.010;
 
 our $VERSION = "0.01";
 
-use Perl::Tags ();
+use Perl::Tags::PPI ();
 use Perl::Tags::Moose::Tag::Attribute ();
 use Perl::Tags::Moose::Tag::Modifier ();
 
-use base qw(Perl::Tags::Naive);
+use Safe;
 
-# TODO
+use base qw(Perl::Tags::PPI);
 
-# find a way to support with and extends, not really possible for with
-# qw(\n...\n); etc, because of Perl::Tags' current design
+my $safe = Safe->new;
 
-# try to parse 'Foo->meta' as a complete tag in VIM and emit such a tag by
-# keeping track of the current package and jumping to the use metaclass line?
+$safe->share_from( "Perl::Tags::Moose::Sugar", [ map { '&' . $_ } keys %Perl::Tags::Moose::Sugar:: ] );
 
-my $sugar_identifier = qr/
-	\s* \(? \s*         # parens are allowed, e.g. has( ... ) or add_attribute( ... )
-	(?: ['"] | qq?. )?  # ditch quotes
 
-	(?<ident> \w+ )     # the identifier itself
-/x;
+sub _tagify {
+	my ( $self, @args ) = @_;
+	my ( $thing, $file ) = @args;
 
-my $match_attr = qr/
-	(?:add_attribute|has)
-	$sugar_identifier
-/x;
+	if ( $thing->class eq 'PPI::Statement' ) {
+		if ( my $first = $thing->first_element ) {
+			if ( $first->class eq 'PPI::Token::Word' ) { # FIXME array refs of constants should also be supported
+				my $sugar = $first->literal;
 
-my $match_modifier = qr/
-	(?:
-		override | augment | around | before | after
-		add_method_modifier |
-		event # MooseX::POE
-	)
+				if ( Perl::Tags::Moose::Sugar->can($sugar) ) {
+					return $self->_tagify_moose_sugar($sugar, $thing, $file);
+				}
+			}
+		}
+	}
 
-	$sugar_identifier
-/x;
-
-my $match_compose = qr(
-	(?: extends | with )
-);
-
-sub get_parsers {
-	my $self = shift;
-
-	return (
-		$self->can('attribute_line'),
-		$self->can('modifier_line'),
-		$self->SUPER::get_parsers(),
-	);
+	$self->SUPER::_tagify(@args);
 }
 
-sub _parse_line {
-	my ( $self, $re, $class, $line, $statement, $file, @args ) = @_;
+sub _tagify_moose_sugar {
+	my ( $self, $sugar, $ppi, $file ) = @_;
 
-	return unless defined $statement;
+	my $str = "$ppi";
 
-	$class = "Perl::Tags::Moose::Tag::$class" unless $class =~ /::/;
+	my @attrs = $safe->reval($str);
 
-	if ( $statement =~ $re ) {
-		return $class->new(
-			( defined($+{ident}) ? ( name => $+{ident} ) : () ),
-			file => $file,
-			line => $line,
-			linenum => $.,
-			@args,
+	unless ( $@ ) {
+		my $line = split /\n/, $str;
+
+		return $self->_construct_moose_tag(
+			type      => $sugar,
+			statement => $ppi,
+			file      => $file,
+			line      => $line,
+			linenum   => $ppi->location->[0],
+			params    => \@attrs,
 		);
+	} else {
+		warn $@;
+		return;
+	}
+}
+
+sub _construct_moose_tag {
+	my ( $self, %args ) = @_;
+
+	my $method = "_construct_moose_tag_$args{type}";
+
+	$self->$method( %args );
+}
+
+sub _construct_moose_tag_has {
+	my ( $self, %args ) = @_;
+
+	my %params = ( name => @{ $args{params} } );
+
+	my %seen;
+	my @names = grep { defined and not ref and not $seen{$_}++ } (
+		$self->_extract_accessor_methods(%params),
+		$self->_extract_delegation_methods(%params),
+		$self->_extract_attribute_helper_methods(%params),
+	);
+
+	map {
+		Perl::Tags::Moose::Tag::Attribute->new(
+			%params,
+			%args,
+			name => $_,
+		);
+	} @names;
+}
+
+sub _extract_accessor_methods {
+	my ( $self, %params ) = @_;
+
+	no warnings 'uninitialized';
+
+	my %accessors = (
+		( $params{is} eq 'rw' ? ( setter => $params{name}, getter => $params{name} ) : () ),
+		( $params{is} eq 'ro' ? ( getter => $params{name} ) : () ),
+		( $params{is} eq 'wo' ? ( setter => $params{name} ) : () ),
+		( exists $params{getter} ? ( getter => $params{getter} ) : () ),
+		( exists $params{setter} ? ( setter => $params{setter} ) : () ),
+		( exists $params{predicate} ? ( predicate => $params{predicate} ) : () ),
+		( exists $params{clearer}   ? ( clearer   => $params{clearer} ) : () ),
+	);
+
+	return values %accessors;
+}
+
+sub _extract_delegation_methods {
+	my ( $self, %params ) = @_;
+
+	if ( my $ref = ref($params{handles}) ) {
+		my $method = "_extract_delegation_methods_" . lc($ref);
+
+		return unless $self->can($method);
+
+		return $self->$method(%params);
 	}
 
 	return;
 }
 
-sub attribute_line {
-	my ( $self, @args ) = @_;
-	$self->_parse_line( $match_attr, "Attribute", @args );
+sub _extract_delegation_methods_array {
+	my ( $self, %params ) = @_;
+
+	return @{ $params{handles} };
 }
 
-sub modifier_line {
-	my ( $self, @args ) = @_;
-	$self->_parse_line( $match_modifier, "Modifier", @args );
+sub _extract_delegation_methods_hash {
+	my ( $self, %params ) = @_;
+
+	return values %{ $params{handles} };
+}
+
+sub _extract_attribute_helper_methods {
+	my ( $self, %params ) = @_;
+
+	if ( ( ref(my $provides = $params{provides}) || '' ) eq 'HASH' ) {
+		return values %$provides,
+	}
+
+	return;
+}
+
+sub _construct_moose_tag_modifier {
+	my ( $self, %args ) = @_;
+
+	my @params = ( name => $args{params}[0] );
+
+	Perl::Tags::Moose::Tag::Modifier->new(
+		@params,
+		%args,
+	);
+}
+
+sub _construct_moose_tag_around { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_before { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_after { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_override { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_augment { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_event { shift->_construct_moose_tag_modifier(@_) } # not really a modifier, but hey, it works
+
+sub _construct_moose_tag_recurse {
+	my ( $self, %args ) = @_;
+
+	map {
+		Perl::Tags::Tag::Recurse->new(
+			name => $_, 
+			line=>'dummy'
+		);
+	} @{ $args{params} },
+}
+
+sub _construct_moose_tag_with { shift->_construct_moose_tag_recurse(@_) }
+sub _construct_moose_tag_extends { shift->_construct_moose_tag_recurse(@_) }
+
+{
+	package Perl::Tags::Moose::Sugar;
+
+	sub extends (@) { @_ }
+
+	sub with (@) { @_ }
+
+	sub has ($;%) { @_ }
+
+	sub around (@&) { @_ }
+
+	sub before (@&) { @_ }
+
+	sub after (@&) { @_ }
+
+	sub override (@&) { @_ }
+
+	sub augment (@&) { @_ }
 }
 
 __PACKAGE__
