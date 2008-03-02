@@ -154,12 +154,12 @@ sub _construct_moose_tag_modifier {
 	);
 }
 
-sub _construct_moose_tag_around { shift->_construct_moose_tag_modifier(@_) }
-sub _construct_moose_tag_before { shift->_construct_moose_tag_modifier(@_) }
-sub _construct_moose_tag_after { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_around   { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_before   { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_after    { shift->_construct_moose_tag_modifier(@_) }
 sub _construct_moose_tag_override { shift->_construct_moose_tag_modifier(@_) }
-sub _construct_moose_tag_augment { shift->_construct_moose_tag_modifier(@_) }
-sub _construct_moose_tag_event { shift->_construct_moose_tag_modifier(@_) } # not really a modifier, but hey, it works
+sub _construct_moose_tag_augment  { shift->_construct_moose_tag_modifier(@_) }
+sub _construct_moose_tag_event    { shift->_construct_moose_tag_modifier(@_) } # not really a modifier, but hey, it works
 
 sub _construct_moose_tag_recurse {
 	my ( $self, %args ) = @_;
